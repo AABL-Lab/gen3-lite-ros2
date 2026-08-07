@@ -49,9 +49,10 @@ defaults to `web` if omitted.
 ## Web interface (browser-based teleop)
 
 `arrows/index.html` is an on-screen arrow-button + keyboard controller
-(translate/rotate toggle, gripper open/close) that publishes `/joy` itself
-over rosbridge — no physical gamepad needed. `launch/web_interface_arrows.launch.py`
-serves it and starts the rosbridge websocket it needs:
+(translate/rotate toggle, gripper open/close) — no physical gamepad
+needed. `launch/web_interface_arrows.launch.py` runs `joy_web_bridge.py`,
+which serves the page and accepts its WebSocket connection directly,
+publishing whatever it sends straight to `/joy`:
 
 ```bash
 ros2 launch gen3-lite-ros2 xbox.launch.py controller:=web        # in one terminal
@@ -60,8 +61,21 @@ ros2 launch gen3-lite-ros2 web_interface_arrows.launch.py        # in another
 
 Then open `http://<this machine's address>:8000` in a browser (phone,
 tablet, laptop — anything on the same network). The page connects back to
-rosbridge on port 9090 on whatever host served it, so no IP needs to be
-hardcoded in the page itself.
+`joy_web_bridge` on port 9090 on whatever host served it, so no IP needs
+to be hardcoded in the page itself.
+
+**Why not rosbridge?** `web_interface_arrows.launch.py` originally used
+`rosbridge_server` + `roslib.js`. In this workspace, `rosbridge_server`'s
+build currently fails to start — `rosbridge_library` imports
+`rosidl_pycommon.interface_base_classes`, which the installed
+`rosidl_pycommon` doesn't have (a real version mismatch between the pinned
+`rosbridge_suite` checkout in `src/rosbridge_suite` and this ROS distro,
+confirmed *not* fixed by upgrading `rosidl_pycommon`). Rather than change
+the pinned version of `rosbridge_suite` or `rosidl_pycommon`,
+`joy_web_bridge.py` talks to the browser with a small self-contained
+WebSocket server (`tornado`, already installed as a transitive
+dependency) — no `rosbridge`/`rosapi` involved, and the page no longer
+depends on the `roslib.js` CDN either.
 
 Controls: on-screen arrows (or arrow keys) move X/Y or Z depending on
 mode, `Translate`/`Rotate` buttons (or `M`) toggle mode, and the gripper
@@ -72,9 +86,11 @@ buttons (or `O`/`C`) open/close it — see `arrows/index.html` for the exact
 `arrows/index.html`'s script to match.
 
 `web_path` (default: this package's `arrows/` directory) and the ports
-(8000 for the page, 9090 for rosbridge) are hardcoded for a single-machine
-dev setup — override `web_path` via the launch argument, or edit the
-launch file, if you need something else.
+(8000 for the page, 9090 for the WebSocket) are hardcoded for a
+single-machine dev setup — override them via launch arguments
+(`web_path:=`, `http_port:=`, `ws_port:=`), or run
+`ros2 run gen3-lite-ros2 joy_web_bridge [web_path] [http_port] [ws_port]`
+directly, if you need something else.
 
 ## Controls
 
@@ -232,6 +248,7 @@ ros2 run gen3-lite-ros2 joint_playback config/waypoints/my_trajectory.txt
 ## Dependencies
 
 `rclpy`, `sensor_msgs`, `geometry_msgs`, `control_msgs`, `trajectory_msgs`,
-`tf2_ros`, `python3-numpy`, `joy`, `rosbridge_server` (for the web
-interface), plus `kortex_bringup` and `kinova_gen3_lite_moveit_config` for
-the full launch-file bring-up. See `package.xml` for the complete list.
+`tf2_ros`, `python3-numpy`, `joy`, `python3-tornado` (for the web
+interface's WebSocket server), plus `kortex_bringup` and
+`kinova_gen3_lite_moveit_config` for the full launch-file bring-up.
+See `package.xml` for the complete list.

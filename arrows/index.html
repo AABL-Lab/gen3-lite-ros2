@@ -75,7 +75,6 @@
 
 <div id="status">Connecting...</div>
 
-<script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
 <script>
 // ── Constants — must match joy_teleop.py's AXES / BUTTONS / ACTIONS ───────
 // (default mapping: enable_move=RB, toggle_mode=Y, gripper_open=LT, gripper_close=RT)
@@ -91,21 +90,28 @@ let translateMode = true;
 let activeDir     = null;
 let gripperState  = null;   // 'open' | 'close' | null
 
-// ── Rosbridge ─────────────────────────────────────────────────────────────
-// Connects back to whatever host served this page, on rosbridge's default
-// port (see launch/web_interface_arrows.launch.py). Override below if
-// rosbridge runs somewhere other than the web server.
-const ros      = new ROSLIB.Ros({ url: 'ws://' + location.hostname + ':9090' });
-
+// ── joy_web_bridge connection ───────────────────────────────────────────
+// Connects back to whatever host served this page, on joy_web_bridge's
+// default WebSocket port (see src/joy_web_bridge.py /
+// launch/web_interface_arrows.launch.py). Every message sent here is
+// published verbatim to /joy — no rosbridge/roslib.js involved.
 const statusEl = document.getElementById('status');
+let ws;
 
-ros.on('connection', () => { statusEl.textContent = 'Connected'; });
-ros.on('error',      () => { statusEl.textContent = 'Error — is rosbridge running?'; });
-ros.on('close',      () => { statusEl.textContent = 'Disconnected'; });
+function connect() {
+  ws = new WebSocket('ws://' + location.hostname + ':9090/joy');
+  ws.onopen  = () => { statusEl.textContent = 'Connected'; };
+  ws.onerror = () => { statusEl.textContent = 'Error — is joy_web_bridge running?'; };
+  ws.onclose = () => {
+    statusEl.textContent = 'Disconnected — retrying...';
+    setTimeout(connect, 1000);
+  };
+}
+connect();
 
-const joyTopic = new ROSLIB.Topic({
-  ros, name: '/joy', messageType: 'sensor_msgs/Joy'
-});
+function publishJoy(msg) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
 
 // ── Build joy message ─────────────────────────────────────────────────────
 function makeJoy(dir) {
@@ -136,7 +142,7 @@ function makeJoy(dir) {
 
 // ── 25 Hz heartbeat — keeps Kortex driver alive ───────────────────────────
 setInterval(() => {
-  joyTopic.publish(new ROSLIB.Message(makeJoy(activeDir)));
+  publishJoy(makeJoy(activeDir));
 }, 1000 / PUBLISH_HZ);
 
 // ── Direction buttons ─────────────────────────────────────────────────────
@@ -173,8 +179,8 @@ function setMode(trans) {
   axes[IDX.RT]    = TRIGGER_IDLE;
   buttons[BTN.RB] = 1;
   buttons[BTN.Y]  = 1;
-  joyTopic.publish(new ROSLIB.Message({ axes, buttons }));
-  setTimeout(() => { buttons[BTN.Y] = 0; joyTopic.publish(new ROSLIB.Message({ axes, buttons })); }, 80);
+  publishJoy({ axes, buttons });
+  setTimeout(() => { buttons[BTN.Y] = 0; publishJoy({ axes, buttons }); }, 80);
 }
 
 // ── Gripper ───────────────────────────────────────────────────────────────

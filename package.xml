@@ -24,7 +24,7 @@
   <exec_depend>kinova_gen3_lite_moveit_config</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joy</exec_depend>
-  <exec_depend>rosbridge_server</exec_depend>
+  <exec_depend>python3-tornado</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
