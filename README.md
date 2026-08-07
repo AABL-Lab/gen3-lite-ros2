@@ -1,10 +1,11 @@
 # gen3-lite-ros2
 
 ROS 2 package for driving a Kinova Gen3 Lite arm. Includes gamepad teleoperation (`joy_teleop.py`) for the
-arm's Cartesian twist controller and gripper, waypoint playback
-(`joint_playback.py`) for replaying a fixed sequence of joint positions,
-and a recorder (`joint_recorder.py`) for building those waypoint files
-interactively.
+arm's Cartesian twist controller and gripper — controllable from either a
+physical gamepad or a browser-based on-screen controller — waypoint
+playback (`joint_playback.py`) for replaying a fixed sequence of joint
+positions, and a recorder (`joint_recorder.py`) for building those
+waypoint files interactively.
 
 ## Build
 
@@ -27,8 +28,8 @@ ros2 launch gen3-lite-ros2 xbox.launch.py controller:=xbox
 
 - `controller:=xbox` (default) — also launches `joy_node` so a wired/Bluetooth
   Xbox controller plugged into this machine publishes `/joy`.
-- `controller:=web` — skips `joy_node`; use this when something else (e.g. a
-  browser Gamepad API bridge) is already publishing `/joy`.
+- `controller:=web` — skips `joy_node`; use this with the browser-based web
+  interface below (or any other bridge that publishes `/joy` itself).
 
 The arm's IP is hardcoded in `xbox.launch.py` (`robot_ip: 192.168.1.10`) —
 edit it there if your robot is at a different address.
@@ -44,6 +45,36 @@ ros2 run gen3-lite-ros2 joy_teleop xbox   # or: joy_teleop web
 
 The argument selects the same `xbox`/`web` behavior described above and
 defaults to `web` if omitted.
+
+## Web interface (browser-based teleop)
+
+`arrows/index.html` is an on-screen arrow-button + keyboard controller
+(translate/rotate toggle, gripper open/close) that publishes `/joy` itself
+over rosbridge — no physical gamepad needed. `launch/web_interface_arrows.launch.py`
+serves it and starts the rosbridge websocket it needs:
+
+```bash
+ros2 launch gen3-lite-ros2 xbox.launch.py controller:=web        # in one terminal
+ros2 launch gen3-lite-ros2 web_interface_arrows.launch.py        # in another
+```
+
+Then open `http://<this machine's address>:8000` in a browser (phone,
+tablet, laptop — anything on the same network). The page connects back to
+rosbridge on port 9090 on whatever host served it, so no IP needs to be
+hardcoded in the page itself.
+
+Controls: on-screen arrows (or arrow keys) move X/Y or Z depending on
+mode, `Translate`/`Rotate` buttons (or `M`) toggle mode, and the gripper
+buttons (or `O`/`C`) open/close it — see `arrows/index.html` for the exact
+`/joy` values it sends, which are built to match `joy_teleop.py`'s default
+`AXES`/`BUTTONS`/`ACTIONS`. If you customize that mapping in
+`joy_teleop.py`, update the `IDX`/`BTN` constants near the top of
+`arrows/index.html`'s script to match.
+
+`web_path` (default: this package's `arrows/` directory) and the ports
+(8000 for the page, 9090 for rosbridge) are hardcoded for a single-machine
+dev setup — override `web_path` via the launch argument, or edit the
+launch file, if you need something else.
 
 ## Controls
 
@@ -201,6 +232,6 @@ ros2 run gen3-lite-ros2 joint_playback config/waypoints/my_trajectory.txt
 ## Dependencies
 
 `rclpy`, `sensor_msgs`, `geometry_msgs`, `control_msgs`, `trajectory_msgs`,
-`tf2_ros`, `python3-numpy`, `joy`, plus `kortex_bringup` and
-`kinova_gen3_lite_moveit_config` for the full launch-file bring-up.
-See `package.xml` for the complete list.
+`tf2_ros`, `python3-numpy`, `joy`, `rosbridge_server` (for the web
+interface), plus `kortex_bringup` and `kinova_gen3_lite_moveit_config` for
+the full launch-file bring-up. See `package.xml` for the complete list.

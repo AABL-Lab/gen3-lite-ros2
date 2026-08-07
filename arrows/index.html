@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Kinova Gen3 Lite Teleop</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+    gap: 16px;
+    background: #fff;
+    color: #111;
+  }
+  h1 { font-size: 1rem; font-weight: 600; }
+  .row { display: flex; gap: 8px; }
+  button {
+    cursor: pointer;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background: #f5f5f5;
+    color: #111;
+    font-size: 13px;
+    padding: 8px 12px;
+    transition: background 0.08s, transform 0.08s;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:hover  { background: #e8e8e8; }
+  button.active { border-color: #555; font-weight: 600; background: #e0e0e0; }
+  .arrow {
+    width: 64px; height: 64px;
+    font-size: 22px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .arrow:active, .arrow.pressed { background: #ddd; transform: scale(0.93); }
+  .z-btn  { width: 96px; height: 48px; }
+  .spacer { width: 64px; height: 64px; }
+  #status { font-size: 12px; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>Kinova Gen3 Lite Teleop</h1>
+
+<div class="row">
+  <button id="mode-t" onclick="setMode(true)">Translate</button>
+  <button id="mode-r" onclick="setMode(false)">Rotate</button>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(3,64px);gap:6px;">
+  <div class="spacer"></div>
+  <button class="arrow" data-dir="up">↑</button>
+  <div class="spacer"></div>
+  <button class="arrow" data-dir="left">←</button>
+  <div class="spacer"></div>
+  <button class="arrow" data-dir="right">→</button>
+  <div class="spacer"></div>
+  <button class="arrow" data-dir="down">↓</button>
+  <div class="spacer"></div>
+</div>
+
+<div class="row">
+  <button class="arrow z-btn" data-dir="zup">Z ↑</button>
+  <button class="arrow z-btn" data-dir="zdown">Z ↓</button>
+</div>
+
+<div class="row">
+  <button onclick="sendGripper('open')"  style="flex:1;padding:12px 16px;">Open gripper</button>
+  <button onclick="sendGripper('close')" style="flex:1;padding:12px 16px;">Close gripper</button>
+</div>
+
+<div id="status">Connecting...</div>
+
+<script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
+<script>
+// ── Constants — must match joy_teleop.py's AXES / BUTTONS / ACTIONS ───────
+// (default mapping: enable_move=RB, toggle_mode=Y, gripper_open=LT, gripper_close=RT)
+const AXES_LEN     = 6;
+const BTN_LEN      = 8;
+const IDX          = { left_h:0, left_v:1, LT:2, right_h:3, right_v:4, RT:5 };
+const BTN          = { Y:3, RB:5 };
+const TRIGGER_IDLE = 1.0;   // Xbox triggers idle at +1.0, pressed at -1.0
+const PUBLISH_HZ   = 25;
+
+// ── State ─────────────────────────────────────────────────────────────────
+let translateMode = true;
+let activeDir     = null;
+let gripperState  = null;   // 'open' | 'close' | null
+
+// ── Rosbridge ─────────────────────────────────────────────────────────────
+// Connects back to whatever host served this page, on rosbridge's default
+// port (see launch/web_interface_arrows.launch.py). Override below if
+// rosbridge runs somewhere other than the web server.
+const ros      = new ROSLIB.Ros({ url: 'ws://' + location.hostname + ':9090' });
+
+const statusEl = document.getElementById('status');
+
+ros.on('connection', () => { statusEl.textContent = 'Connected'; });
+ros.on('error',      () => { statusEl.textContent = 'Error — is rosbridge running?'; });
+ros.on('close',      () => { statusEl.textContent = 'Disconnected'; });
+
+const joyTopic = new ROSLIB.Topic({
+  ros, name: '/joy', messageType: 'sensor_msgs/Joy'
+});
+
+// ── Build joy message ─────────────────────────────────────────────────────
+function makeJoy(dir) {
+  const axes    = new Array(AXES_LEN).fill(0.0);
+  const buttons = new Array(BTN_LEN).fill(0);
+
+  // Triggers idle at 1.0; heartbeat carries gripper state so it's never
+  // overwritten by the interval before joy_teleop.py sees the edge.
+  axes[IDX.LT]    = TRIGGER_IDLE;
+  axes[IDX.RT]    = TRIGGER_IDLE;
+  buttons[BTN.RB] = 1;
+
+  if (gripperState === 'open')  axes[IDX.LT] = -1.0;
+  if (gripperState === 'close') axes[IDX.RT] = -1.0;
+
+  if (dir) {
+    switch (dir) {
+      case 'up':    axes[IDX.left_v]  =  1.0; break;
+      case 'down':  axes[IDX.left_v]  = -1.0; break;
+      case 'left':  axes[IDX.left_h]  =  1.0; break;
+      case 'right': axes[IDX.left_h]  = -1.0; break;
+      case 'zup':   axes[IDX.right_v] =  1.0; break;
+      case 'zdown': axes[IDX.right_v] = -1.0; break;
+    }
+  }
+  return { axes, buttons };
+}
+
+// ── 25 Hz heartbeat — keeps Kortex driver alive ───────────────────────────
+setInterval(() => {
+  joyTopic.publish(new ROSLIB.Message(makeJoy(activeDir)));
+}, 1000 / PUBLISH_HZ);
+
+// ── Direction buttons ─────────────────────────────────────────────────────
+function pressDir(dir) {
+  activeDir = dir;
+  document.querySelector('[data-dir="' + dir + '"]')?.classList.add('pressed');
+}
+
+function releaseDir() {
+  if (activeDir) document.querySelector('[data-dir="' + activeDir + '"]')?.classList.remove('pressed');
+  activeDir = null;
+}
+
+document.querySelectorAll('[data-dir]').forEach(btn => {
+  const dir = btn.dataset.dir;
+  btn.addEventListener('mousedown',  e => { e.preventDefault(); pressDir(dir); });
+  btn.addEventListener('touchstart', e => { e.preventDefault(); pressDir(dir); }, { passive: false });
+});
+
+window.addEventListener('mouseup',  () => releaseDir());
+window.addEventListener('touchend', () => releaseDir());
+
+// ── Mode toggle ───────────────────────────────────────────────────────────
+function setMode(trans) {
+  if (trans === translateMode) return;
+  translateMode = trans;
+  document.getElementById('mode-t').classList.toggle('active',  trans);
+  document.getElementById('mode-r').classList.toggle('active', !trans);
+
+  // Send Y-button rising edge so joy_teleop.py toggles its internal mode
+  const axes    = new Array(AXES_LEN).fill(0.0);
+  const buttons = new Array(BTN_LEN).fill(0);
+  axes[IDX.LT]    = TRIGGER_IDLE;
+  axes[IDX.RT]    = TRIGGER_IDLE;
+  buttons[BTN.RB] = 1;
+  buttons[BTN.Y]  = 1;
+  joyTopic.publish(new ROSLIB.Message({ axes, buttons }));
+  setTimeout(() => { buttons[BTN.Y] = 0; joyTopic.publish(new ROSLIB.Message({ axes, buttons })); }, 80);
+}
+
+// ── Gripper ───────────────────────────────────────────────────────────────
+// Set gripperState so the heartbeat carries the trigger value for 200 ms.
+// This guarantees joy_teleop.py sees the edge regardless of interval timing.
+function sendGripper(which) {
+  gripperState = which;
+  setTimeout(() => { gripperState = null; }, 200);
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────
+const KEY_DIR = {
+  ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+  q:'zup', Q:'zup', z:'zdown', Z:'zdown'
+};
+document.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (KEY_DIR[e.key]) { pressDir(KEY_DIR[e.key]); return; }
+  if (e.key === 'o' || e.key === 'O') sendGripper('open');
+  if (e.key === 'c' || e.key === 'C') sendGripper('close');
+  if (e.key === 'm' || e.key === 'M') setMode(!translateMode);
+});
+document.addEventListener('keyup', e => { if (KEY_DIR[e.key]) releaseDir(); });
+
+// Init visual state
+document.getElementById('mode-t').classList.add('active');
+</script>
+</body>
+</html>
