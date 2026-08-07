@@ -1,0 +1,17 @@
+# Example waypoint file for joint_playback.py
+#
+# One waypoint per line: joint_1 joint_2 joint_3 joint_4 joint_5 joint_6 [duration]
+# Angles are in radians. duration (seconds) is optional — defaults to
+# DEFAULT_TIME_PER_WAYPOINT in joint_playback.py if omitted.
+#
+# These specific angles are illustrative only — check them against your
+# workspace and the arm's joint limits before running on real hardware.
+
+# home
+0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+# reach forward, take 3s
+0.3, -0.4, 0.9, 0.0, 1.1, 0.0, 3.0
+
+# back to home, take 3s
+0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0

@@ -40,6 +40,8 @@ setup(
         'console_scripts': [
             # 'get_joints = AZ_demo.get_joints:main',
             'joy_teleop = gen3-lite-ros2.joy_teleop:main',
+            'joint_playback = gen3-lite-ros2.joint_playback:main',
+            'joint_recorder = gen3-lite-ros2.joint_recorder:main',
             # 'cartesian_admittance = AZ_demo.cartesian_admittance:main',
             # 'emoji_listener = AZ_demo.emoji_listener:main',
             # 'recorder = AZ_demo.recorder:main',

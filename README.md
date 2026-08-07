@@ -1,0 +1,206 @@
+# gen3-lite-ros2
+
+ROS 2 package for driving a Kinova Gen3 Lite arm. Includes gamepad teleoperation (`joy_teleop.py`) for the
+arm's Cartesian twist controller and gripper, waypoint playback
+(`joint_playback.py`) for replaying a fixed sequence of joint positions,
+and a recorder (`joint_recorder.py`) for building those waypoint files
+interactively.
+
+## Build
+
+From the workspace root:
+
+```bash
+colcon build --packages-select gen3-lite-ros2
+source install/setup.bash
+```
+
+## Quick start: full robot + gamepad teleop
+
+`launch/xbox.launch.py` brings up the real Gen3 Lite arm (via
+`kortex_bringup`), switches the controller manager over to
+`twist_controller`, and starts `joy_teleop`:
+
+```bash
+ros2 launch gen3-lite-ros2 xbox.launch.py controller:=xbox
+```
+
+- `controller:=xbox` (default) — also launches `joy_node` so a wired/Bluetooth
+  Xbox controller plugged into this machine publishes `/joy`.
+- `controller:=web` — skips `joy_node`; use this when something else (e.g. a
+  browser Gamepad API bridge) is already publishing `/joy`.
+
+The arm's IP is hardcoded in `xbox.launch.py` (`robot_ip: 192.168.1.10`) —
+edit it there if your robot is at a different address.
+
+## Running joy_teleop by itself
+
+If the robot and controllers are already up (e.g. you only want to restart
+teleop), run the node directly:
+
+```bash
+ros2 run gen3-lite-ros2 joy_teleop xbox   # or: joy_teleop web
+```
+
+The argument selects the same `xbox`/`web` behavior described above and
+defaults to `web` if omitted.
+
+## Controls
+
+| Control | Action |
+|---|---|
+| Hold **RB** | enable arm movement (release to stop) |
+| Hold **LB** + RB | turbo speed |
+| **Y** | toggle translate / rotate mode |
+| Left stick / right stick vertical (TRANSLATE mode) | move X / Y / Z |
+| Left stick / right stick horizontal (ROTATE mode) | roll / pitch / yaw |
+| **LT** | open gripper |
+| **RT** | close gripper |
+
+Movement is interpreted in the robot's base frame and rotated into the
+end-effector frame via TF, so "push stick forward" always moves the arm
+away from the base regardless of wrist orientation.
+
+### Customizing the mapping
+
+All of the above is configurable at the top of
+[`src/joy_teleop.py`](src/joy_teleop.py) without touching any control logic:
+
+- **`AXES` / `BUTTONS`** — physical index each named axis/button is reported
+  at by the gamepad driver. Edit if a non-Xbox-layout controller reports
+  indices differently.
+- **`ACTIONS`** — which button/trigger drives each command (`enable_move`,
+  `turbo`, `toggle_mode`, `gripper_open`, `gripper_close`). Change a value to
+  move a command to a different button.
+- **`AXIS_MAP`** — which stick axis drives each Cartesian DOF
+  (`translate_x/y/z`, `rotate_roll/pitch/yaw`), plus a sign to flip its
+  direction.
+- **Speed/behavior constants** — `LINEAR_SCALE`, `ANGULAR_SCALE`,
+  `TURBO_MULT`, `PUBLISH_HZ`, `TRIGGER_THRESHOLD`, `GRIPPER_*`.
+
+The node's startup log prints the active mapping, so a remap is reflected
+there automatically.
+
+## Topics & actions used by joy_teleop
+
+| Name | Type | Direction |
+|---|---|---|
+| `/joy` | `sensor_msgs/Joy` | subscribed |
+| `/twist_controller/commands` | `geometry_msgs/Twist` | published (at `PUBLISH_HZ`, always — zeros when movement isn't enabled, to keep the kortex driver's heartbeat alive) |
+| `/robotiq_gripper_controller/gripper_cmd` | `control_msgs/action/ParallelGripperCommand` | action client |
+
+## Joint waypoint playback
+
+`joint_playback.py` reads a text file of joint-angle waypoints and sends
+each one to `joint_trajectory_controller` as a `FollowJointTrajectory`
+goal, in order, waiting for each to finish before sending the next.
+
+This needs `joint_trajectory_controller` active, which is `kortex_bringup`'s
+default — but note `xbox.launch.py` switches the arm to `twist_controller`
+for teleop, so if the arm was last brought up for teleop, switch back first:
+
+```bash
+ros2 control switch_controllers \
+    --activate joint_trajectory_controller --deactivate twist_controller
+```
+
+### Quick start: full robot + playback
+
+```bash
+ros2 launch gen3-lite-ros2 joint_playback.launch.py waypoints_file:=config/waypoints/example.txt
+```
+
+This brings up the arm with `joint_trajectory_controller` active (no
+switching needed) and plays back the given file. `waypoints_file` is
+required; `robot_ip` defaults to `192.168.1.10` like `xbox.launch.py`.
+
+### Running joint_playback by itself
+
+If the robot is already up under `joint_trajectory_controller`:
+
+```bash
+ros2 run gen3-lite-ros2 joint_playback config/waypoints/example.txt
+```
+
+### Waypoint file format
+
+One waypoint per line, whitespace- or comma-separated:
+
+```
+joint_1 joint_2 joint_3 joint_4 joint_5 joint_6 [duration]
+```
+
+- The six joint angles are in radians, in `JOINT_NAMES` order (see
+  [`src/joint_playback.py`](src/joint_playback.py)).
+- The optional trailing `duration` is how many seconds the controller
+  should take to reach that waypoint from the previous one. If omitted,
+  `DEFAULT_TIME_PER_WAYPOINT` (4s) is used.
+- Blank lines are skipped; `#` starts a comment.
+
+See [`config/waypoints/example.txt`](config/waypoints/example.txt) for a
+worked example. **The angles in that file are illustrative only** — verify
+against your workspace and the arm's joint limits before running on real
+hardware.
+
+### Topics & actions used by joint_playback
+
+| Name | Type | Direction |
+|---|---|---|
+| `/joint_trajectory_controller/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` | action client |
+
+## Recording waypoints
+
+`joint_recorder.py` builds a waypoint file interactively: jog the arm to a
+pose by whatever means is running (`joy_teleop.py`, MoveIt, hand-backdriving
+if the arm supports it), hit Enter in the recorder's terminal, and it
+appends the arm's current joint positions to the output file in exactly
+the format `joint_playback.py` expects — no manual transcription.
+
+It only subscribes to `/joint_states`, so it doesn't care which controller
+is currently active and can run alongside `joy_teleop.py` or any other way
+of moving the arm.
+
+```bash
+ros2 run gen3-lite-ros2 joint_recorder config/waypoints/my_trajectory.txt
+```
+
+An optional second argument sets the per-waypoint duration written into
+each recorded line (default 4s):
+
+```bash
+ros2 run gen3-lite-ros2 joint_recorder config/waypoints/my_trajectory.txt 2.0
+```
+
+If `<output_file>` already exists, new waypoints are appended after its
+existing contents rather than overwriting it.
+
+At the `>` prompt:
+
+| Input | Action |
+|---|---|
+| *(blank)* Enter | record the arm's current pose as the next waypoint |
+| `u` | undo (remove) the last waypoint recorded **this session** |
+| `q` | quit |
+
+The file is rewritten after every record/undo, so it's always safe to feed
+to `joint_playback.py` even if you exit without typing `q`. When you're
+done recording, play it back with:
+
+```bash
+ros2 run gen3-lite-ros2 joint_playback config/waypoints/my_trajectory.txt
+```
+
+(with `joint_trajectory_controller` active — see above).
+
+### Topics used by joint_recorder
+
+| Name | Type | Direction |
+|---|---|---|
+| `/joint_states` | `sensor_msgs/JointState` | subscribed |
+
+## Dependencies
+
+`rclpy`, `sensor_msgs`, `geometry_msgs`, `control_msgs`, `trajectory_msgs`,
+`tf2_ros`, `python3-numpy`, `joy`, plus `kortex_bringup` and
+`kinova_gen3_lite_moveit_config` for the full launch-file bring-up.
+See `package.xml` for the complete list.

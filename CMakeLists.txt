@@ -13,6 +13,7 @@ find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY
   launch
+  config
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -20,6 +21,18 @@ install(PROGRAMS
   src/joy_teleop.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME joy_teleop
+)
+
+install(PROGRAMS
+  src/joint_playback.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME joint_playback
+)
+
+install(PROGRAMS
+  src/joint_recorder.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME joint_recorder
 )
 
 if(BUILD_TESTING)
