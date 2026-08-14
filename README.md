@@ -1,3 +1,5 @@
+For additional information, reference the doc here: https://docs.google.com/document/d/1e49sWaCcWIZYFpPIl9jcipFpu3DYWyUefIVDwcwyToA/edit?usp=sharing 
+
 # gen3-lite-ros2
 
 ROS 2 package for driving a Kinova Gen3 Lite arm. Includes gamepad teleoperation (`joy_teleop.py`) for the
