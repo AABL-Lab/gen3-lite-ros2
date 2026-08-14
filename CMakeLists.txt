@@ -36,13 +36,26 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  src/behavior_recorder.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME behavior_recorder
+)
+
+install(PROGRAMS
   src/joy_web_bridge.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME joy_web_bridge
 )
 
+install(PROGRAMS
+  src/emoji_web_bridge.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME emoji_web_bridge
+)
+
 install(DIRECTORY
   arrows
+  emojis
   DESTINATION share/${PROJECT_NAME}
 )
 

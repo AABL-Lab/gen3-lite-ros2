@@ -4,8 +4,10 @@ ROS 2 package for driving a Kinova Gen3 Lite arm. Includes gamepad teleoperation
 arm's Cartesian twist controller and gripper — controllable from either a
 physical gamepad or a browser-based on-screen controller — waypoint
 playback (`joint_playback.py`) for replaying a fixed sequence of joint
-positions, and a recorder (`joint_recorder.py`) for building those
-waypoint files interactively.
+positions, two recorders for building those waypoint files
+(`joint_recorder.py`, keyboard-driven; `behavior_recorder.py`,
+Xbox-controller-driven), and a browser-based emoji action panel
+(`emoji_web_bridge.py`) that publishes named actions to `/emoji_action`.
 
 ## Build
 
@@ -91,6 +93,37 @@ single-machine dev setup — override them via launch arguments
 (`web_path:=`, `http_port:=`, `ws_port:=`), or run
 `ros2 run gen3-lite-ros2 joy_web_bridge [web_path] [http_port] [ws_port]`
 directly, if you need something else.
+
+## Emoji action panel
+
+`emojis/index.html` is a grid of buttons ("Robot Action Panel") that each
+publish an `action_id` string (e.g. `thumbs_up`, `laugh`, `shocked`) to
+`/emoji_action` when clicked. It works the same way as the arrows
+interface above — `emoji_web_bridge.py` serves the page and forwards its
+WebSocket messages straight to the topic, no `rosbridge` involved:
+
+```bash
+ros2 launch gen3-lite-ros2 web_interface_emojis.launch.py
+```
+
+Then open `http://<this machine's address>:8001` in a browser. It uses
+different default ports (8001/9091) than the arrows interface (8000/9090)
+so both can run at the same time.
+
+**Nothing subscribes to `/emoji_action` yet** — this only provides the
+panel and the topic. (AZ_demo's version wires `handshake` up to replaying
+a single hardcoded trajectory file for its 7-DOF arm; that's a rougher,
+more coupled prototype that doesn't map cleanly onto Gen3 Lite's 6 joints,
+so it wasn't ported here. `joint_playback.py`/`joint_recorder.py` above
+are the general-purpose way to record and replay a gesture on this arm —
+wiring a specific `action_id` to a specific waypoint file via a small
+listener node is a natural follow-up if you want that.)
+
+### Topics used by emoji_web_bridge
+
+| Name | Type | Direction |
+|---|---|---|
+| `/emoji_action` | `std_msgs/String` | published |
 
 ## Controls
 
@@ -245,10 +278,60 @@ ros2 run gen3-lite-ros2 joint_playback config/waypoints/my_trajectory.txt
 |---|---|---|
 | `/joint_states` | `sensor_msgs/JointState` | subscribed |
 
+## Recording a behavior with the Xbox controller
+
+`behavior_recorder.py` is `joint_recorder.py`'s controller-driven sibling:
+instead of hitting Enter at a keyboard, you tap a button on the Xbox
+controller to record a waypoint — so you never have to let go of the
+sticks while jogging the arm. Run it **alongside** `joy_teleop.py`, which
+is what actually drives the arm; this node only watches `/joy` for its
+own buttons (chosen to not collide with `joy_teleop.py`'s RB/LB/Y/LT/RT)
+and `/joint_states` for the current pose:
+
+```bash
+ros2 launch gen3-lite-ros2 xbox.launch.py controller:=xbox                      # in one terminal
+ros2 run gen3-lite-ros2 behavior_recorder config/waypoints/my_behavior.txt      # in another
+```
+
+An optional second argument sets the per-waypoint duration, same as
+`joint_recorder.py` (default 4s). `<output_file>` is appended to if it
+already exists.
+
+Controls (Xbox buttons — edit `RECORD_ACTIONS` near the top of
+`behavior_recorder.py` to remap):
+
+| Button | Action |
+|---|---|
+| `A` | record the arm's current pose as the next waypoint |
+| `B` | undo (remove) the last waypoint recorded **this session** |
+| `start` | stop recording (same as Ctrl+C) |
+
+Same live-rewrite guarantee as `joint_recorder.py`: the file is updated
+after every record/undo, so it's always safe to hand to
+`joint_playback.py`, and the waypoint format is identical (interchangeable
+with files from `joint_recorder.py`). Once you're happy with the
+behavior, replay it with:
+
+```bash
+ros2 run gen3-lite-ros2 joint_playback config/waypoints/my_behavior.txt
+```
+
+(with `joint_trajectory_controller` active instead of `twist_controller`
+— see "Joint waypoint playback" above; you'll need to switch controllers
+after recording, since `xbox.launch.py` runs `twist_controller` for
+teleop.)
+
+### Topics used by behavior_recorder
+
+| Name | Type | Direction |
+|---|---|---|
+| `/joy` | `sensor_msgs/Joy` | subscribed |
+| `/joint_states` | `sensor_msgs/JointState` | subscribed |
+
 ## Dependencies
 
-`rclpy`, `sensor_msgs`, `geometry_msgs`, `control_msgs`, `trajectory_msgs`,
-`tf2_ros`, `python3-numpy`, `joy`, `python3-tornado` (for the web
-interface's WebSocket server), plus `kortex_bringup` and
+`rclpy`, `sensor_msgs`, `std_msgs`, `geometry_msgs`, `control_msgs`,
+`trajectory_msgs`, `tf2_ros`, `python3-numpy`, `joy`, `python3-tornado`
+(for the web interfaces' WebSocket servers), plus `kortex_bringup` and
 `kinova_gen3_lite_moveit_config` for the full launch-file bring-up.
 See `package.xml` for the complete list.
