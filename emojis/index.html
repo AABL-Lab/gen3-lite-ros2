@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Robot Action Panel</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #f5f4f0;
+    --surface:   #ffffff;
+    --surface2:  #eeecf8;
+    --border:    #dddbe8;
+    --border2:   #c4c0dc;
+    --text:      #1a1830;
+    --muted:     #8c89a8;
+    --accent:    #5b48e8;
+    --accent2:   #3d2cc4;
+    --accent-glow: rgba(91, 72, 232, 0.12);
+    --radius:    16px;
+  }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.5rem 1.25rem 4rem;
+    background-image:
+      radial-gradient(ellipse 60% 40% at 50% -10%, rgba(91,72,232,0.07) 0%, transparent 70%);
+  }
+
+  header {
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2.5rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--accent2);
+    text-transform: uppercase;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 5px 12px 5px 8px;
+  }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--border2);
+    transition: background 0.4s, box-shadow 0.4s;
+    flex-shrink: 0;
+  }
+  .dot.ok  { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.6); }
+  .dot.err { background: #f87171; box-shadow: 0 0 8px rgba(248,113,113,0.6); }
+
+  .main {
+    width: 100%;
+    max-width: 600px;
+  }
+
+  .emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .emoji-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 10px 18px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .emoji-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent-glow);
+    opacity: 0;
+    transition: opacity 0.2s;
+    border-radius: inherit;
+  }
+
+  .emoji-btn:hover {
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .emoji-btn:hover::before { opacity: 1; }
+
+  .emoji-btn.fired {
+    transform: scale(0.93);
+    border-color: var(--accent);
+  }
+
+  .emoji-btn.fired::before { opacity: 1; }
+
+  .emoji-btn .icon {
+    font-size: 36px;
+    line-height: 1;
+    transition: transform 0.15s;
+  }
+
+  .emoji-btn:hover .icon {
+    transform: scale(1.12);
+  }
+
+  .emoji-btn .name {
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    text-align: center;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+  }
+
+  .emoji-btn .id {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    text-align: center;
+    letter-spacing: 0.05em;
+  }
+
+  .toast-wrap {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  .toast {
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 100px;
+    padding: 8px 20px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent2);
+    white-space: nowrap;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.18s, transform 0.18s;
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (max-width: 380px) {
+    .emoji-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Robot Action Panel</h1>
+  <div class="status-pill">
+    <div class="dot" id="dot"></div>
+    <span id="status-text">connecting…</span>
+  </div>
+</header>
+
+<main class="main">
+  <div class="emoji-grid" id="grid-actions"></div>
+</main>
+
+<div class="toast-wrap">
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+const ACTIONS = [
+  { emoji: "👍", name: "Thumbs Up",   action_id: "thumbs_up"   },
+  { emoji: "😩", name: "Uggghh",      action_id: "uggh"        },
+  { emoji: "🙂‍↔️", name: "Head Shake",        action_id: "head-shake"        },
+  { emoji: "😂", name: "Laugh",       action_id: "laugh"       },
+  { emoji: "😭", name: "Sobbing", action_id: "sobbing" },
+  { emoji: "😱", name: "Shocked",     action_id: "shocked"     },
+  { emoji: "😤", name: "Angry",    action_id: "angry"    },
+  { emoji: "💀", name: "Dead",        action_id: "dead"        },
+  { emoji: "😳", name: "Flushed Face",   action_id: "flushed-face"   },
+];
+
+// ── emoji_web_bridge connection ────────────────────────────────────────
+// Connects back to whatever host served this page, on emoji_web_bridge's
+// default WebSocket port (see src/emoji_web_bridge.py /
+// launch/web_interface_emojis.launch.py). Each button click sends
+// {"action_id": "..."} over the socket, which gets published verbatim to
+// /emoji_action as a std_msgs/String — no rosbridge/roslib.js involved.
+const dot        = document.getElementById('dot');
+const statusText = document.getElementById('status-text');
+let ws;
+
+function connect() {
+  ws = new WebSocket('ws://' + location.hostname + ':9091/emoji_action');
+  ws.onopen  = () => { dot.className = 'dot ok';  statusText.textContent = 'connected'; };
+  ws.onerror = () => { dot.className = 'dot err'; statusText.textContent = 'error'; };
+  ws.onclose = () => {
+    dot.className = 'dot';
+    statusText.textContent = 'disconnected — retrying…';
+    setTimeout(connect, 1000);
+  };
+}
+connect();
+
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+function fireAction(btn, action_id, name) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action_id }));
+  showToast('▶ ' + name);
+  btn.classList.add('fired');
+  setTimeout(() => btn.classList.remove('fired'), 180);
+}
+
+const grid = document.getElementById('grid-actions');
+ACTIONS.forEach(item => {
+  const btn = document.createElement('button');
+  btn.className = 'emoji-btn';
+  btn.innerHTML =
+    `<span class="icon">${item.emoji}</span>` +
+    `<span class="name">${item.name}</span>` +
+    `<span class="id">${item.action_id}</span>`;
+  btn.addEventListener('click', () => fireAction(btn, item.action_id, item.name));
+  grid.appendChild(btn);
+});
+</script>
+</body>
+</html>

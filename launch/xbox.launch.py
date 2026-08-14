@@ -37,7 +37,18 @@ def generate_launch_description():
             'use_fake_hardware': 'false',
             'robot_ip': '192.168.1.10',
             'gripper': 'gen3_lite_2f',      # built-in gripper, not robotiq_2f_85
+            # kortex_control.launch.py spawns two independent controller
+            # slots: robot_controller (always ACTIVE) and robot_pos_controller
+            # (always spawned --inactive). We want twist_controller active
+            # for teleop but joint_trajectory_controller still LOADED
+            # (just inactive) so `ros2 control switch_controllers` can
+            # activate it later for playback. Without this override,
+            # robot_pos_controller keeps its own default ('twist_controller'),
+            # so joint_trajectory_controller never gets loaded at all —
+            # switch_controllers then fails with "no controller with this
+            # name exists".
             'robot_controller': 'twist_controller',
+            'robot_pos_controller': 'joint_trajectory_controller',
             'launch_rviz': 'false',
         }.items()
     )

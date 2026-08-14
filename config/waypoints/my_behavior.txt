@@ -1,0 +1,5 @@
+# Waypoints recorded by behavior_recorder.py — readable by joint_playback.py.
+# joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, duration
+0.155806, -1.866998, -1.117272, -2.038598, -1.506831, 1.412822, 4.00
+0.123451, -1.884999, -1.245666, -2.012221, -1.596924, 1.345543, 4.00
+0.191937, -1.825503, -0.923266, -2.073208, -1.385343, 1.506051, 4.00
