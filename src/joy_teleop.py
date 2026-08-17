@@ -17,7 +17,7 @@ Publishes:
     even while no buttons are held (it sends zero twists otherwise).
 
 Action client:
-    /robotiq_gripper_controller/gripper_cmd (control_msgs/action/ParallelGripperCommand)
+    /gen3_lite_2f_gripper_controller/gripper_cmd (control_msgs/action/GripperCommand)
 
 Usage:
     ros2 run <pkg> joy_teleop.py [xbox|web]
@@ -30,8 +30,8 @@ Usage:
             mapping, so no separate mapping is needed.
 
 Default controls (see "CUSTOMIZING THE MAPPING" below to change these):
-    Hold RB          : enable arm movement (released -> arm holds still)
-    Hold LB + RB      : turbo speed
+    (sticks move the arm continuously, no button needs to be held)
+    Hold LB          : turbo speed
     Y button         : toggle translate / rotate mode
     TRANSLATE mode   : left stick = X/Y, right stick vertical = Z
     ROTATE mode      : left stick = roll/pitch, right stick horizontal = yaw
@@ -49,11 +49,10 @@ other code:
    axes/buttons in a different order.
 
 2. ACTIONS — which physical button/trigger drives each on/off command
-   ('enable_move', 'turbo', 'toggle_mode', 'gripper_open', 'gripper_close').
-   Change a value here to move a command to a different button, e.g.
-   swap 'enable_move': 'RB' for 'enable_move': 'LB' to use the other
-   shoulder button. Must reference a key that exists in AXES (for trigger
-   actions) or BUTTONS (for button actions).
+   ('turbo', 'toggle_mode', 'gripper_open', 'gripper_close').
+   Change a value here to move a command to a different button. Must
+   reference a key that exists in AXES (for trigger actions) or BUTTONS
+   (for button actions).
 
 3. AXIS_MAP — which stick axis drives each Cartesian degree of freedom
    ('translate_x', 'translate_y', 'translate_z', 'rotate_roll',
@@ -75,7 +74,7 @@ from rclpy.action import ActionClient
 
 from sensor_msgs.msg import Joy
 from geometry_msgs.msg import Twist
-from control_msgs.action import ParallelGripperCommand
+from control_msgs.action import GripperCommand
 
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
@@ -121,8 +120,7 @@ BUTTONS = {
 # Remap a command by changing its value here — no other code needs to change.
 
 ACTIONS = {
-    'enable_move':   'RB',   # hold to allow arm movement
-    'turbo':         'LB',   # hold with enable_move for TURBO_MULT speed
+    'turbo':         'LB',   # hold for TURBO_MULT speed
     'toggle_mode':   'Y',    # tap to switch translate/rotate mode
     'gripper_open':  'LT',   # trigger axis, pulled past TRIGGER_THRESHOLD
     'gripper_close': 'RT',   # trigger axis, pulled past TRIGGER_THRESHOLD
@@ -130,7 +128,7 @@ ACTIONS = {
 
 # Which stick axis drives each Cartesian degree of freedom, and its sign.
 # Flip the sign to reverse a direction; change the axis name to move a DOF
-# to a different stick. Only used while ACTIONS['enable_move'] is held.
+# to a different stick.
 
 AXIS_MAP = {
     'translate_x':  ('left_stick_v',  +1),
@@ -163,7 +161,6 @@ TRIGGER_THRESHOLD = 0.5
 GRIPPER_OPEN = 0.0
 GRIPPER_CLOSE = 0.8
 GRIPPER_MAX_EFFORT = 10.0
-GRIPPER_JOINT = 'robotiq_85_left_knuckle_joint'
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -204,8 +201,8 @@ class JoyTeleop(Node):
 
         # ── Publishers / clients ────────────────────────────────────────────
         self._gripper_client = ActionClient(
-            self, ParallelGripperCommand,
-            '/robotiq_gripper_controller/gripper_cmd'
+            self, GripperCommand,
+            '/gen3_lite_2f_gripper_controller/gripper_cmd'
         )
         self._twist_pub = self.create_publisher(
             Twist, '/twist_controller/commands', 10
@@ -217,7 +214,6 @@ class JoyTeleop(Node):
         self._last_buttons = []
         self.gripper_busy = False
         self.translation_mode = True
-        self._enable_held = False
 
         # _current_twist is what we want to send right now.
         # The joy callback updates it; the timer publishes it at a fixed rate.
@@ -237,7 +233,8 @@ class JoyTeleop(Node):
         self.get_logger().info("JoyTeleop ready  [BASE-FRAME mode]")
         self.get_logger().info(f"  Base frame : {BASE_FRAME}")
         self.get_logger().info(f"  EEF frame  : {EEF_FRAME}")
-        self.get_logger().info(f"  Hold {ACTIONS['enable_move']:<4}       : enable arm movement")
+        self.get_logger().info(f"  Sticks move the arm continuously (no deadman button)")
+        self.get_logger().info(f"  Hold {ACTIONS['turbo']:<4}       : turbo speed")
         self.get_logger().info(f"  {ACTIONS['toggle_mode']:<4} button   : toggle translate/rotate mode")
         self.get_logger().info(f"  TRANSLATE mode   : {tx_axis}=X  {ty_axis}=Y  {tz_axis}=Z")
         self.get_logger().info(f"  ROTATE mode      : {rr_axis}=roll  {rp_axis}=pitch  {ry_axis}=yaw")
@@ -349,45 +346,38 @@ class JoyTeleop(Node):
         # ── Arm movement ─────────────────────────────────────────────────────
         # Update _current_twist based on joystick state.
         # The timer publishes it at a fixed rate for a steady kortex heartbeat.
-        enable = action_btn('enable_move')
+        # Movement is always enabled — no deadman button required.
+        self._update_eef_rotation()
 
-        if enable:
-            self._update_eef_rotation()
+        speed = TURBO_MULT if action_btn('turbo') else 1.0
+        lin = LINEAR_SCALE  * speed
+        ang = ANGULAR_SCALE * speed
 
-            speed = TURBO_MULT if action_btn('turbo') else 1.0
-            lin = LINEAR_SCALE  * speed
-            ang = ANGULAR_SCALE * speed
+        twist = Twist()
 
-            twist = Twist()
-
-            if self.translation_mode:
-                v_base = np.array([
-                    mapped_axis('translate_x') * lin,
-                    mapped_axis('translate_y') * lin,
-                    mapped_axis('translate_z') * lin,
-                ])
-                v_eef, _ = rotate_twist_to_base(v_base, np.zeros(3), self._R_base_eef)
-                twist.linear.x = float(v_eef[0])
-                twist.linear.y = float(v_eef[1])
-                twist.linear.z = float(v_eef[2])
-            else:
-                w_base = np.array([
-                    mapped_axis('rotate_roll')  * ang,
-                    mapped_axis('rotate_pitch') * ang,
-                    mapped_axis('rotate_yaw')   * ang,
-                ])
-                _, w_eef = rotate_twist_to_base(np.zeros(3), w_base, self._R_base_eef)
-                twist.angular.x = float(w_eef[0])
-                twist.angular.y = float(w_eef[1])
-                twist.angular.z = float(w_eef[2])
-
-            self._current_twist = twist
+        if self.translation_mode:
+            v_base = np.array([
+                mapped_axis('translate_x') * lin,
+                mapped_axis('translate_y') * lin,
+                mapped_axis('translate_z') * lin,
+            ])
+            v_eef, _ = rotate_twist_to_base(v_base, np.zeros(3), self._R_base_eef)
+            twist.linear.x = float(v_eef[0])
+            twist.linear.y = float(v_eef[1])
+            twist.linear.z = float(v_eef[2])
         else:
-            if self._enable_held:
-                self.get_logger().info(f"{ACTIONS['enable_move']} released — arm stopped.")
-            self._current_twist = Twist()   # zeros — arm holds still, heartbeat continues
+            w_base = np.array([
+                mapped_axis('rotate_roll')  * ang,
+                mapped_axis('rotate_pitch') * ang,
+                mapped_axis('rotate_yaw')   * ang,
+            ])
+            _, w_eef = rotate_twist_to_base(np.zeros(3), w_base, self._R_base_eef)
+            twist.angular.x = float(w_eef[0])
+            twist.angular.y = float(w_eef[1])
+            twist.angular.z = float(w_eef[2])
 
-        self._enable_held = bool(enable)
+        self._current_twist = twist
+
         self._last_axes = axes
         self._last_buttons = buttons
 
@@ -399,10 +389,9 @@ class JoyTeleop(Node):
 
         self.gripper_busy = True
 
-        goal = ParallelGripperCommand.Goal()
-        goal.command.name     = [GRIPPER_JOINT]
-        goal.command.position = [position]
-        goal.command.effort   = [GRIPPER_MAX_EFFORT]
+        goal = GripperCommand.Goal()
+        goal.command.position   = position
+        goal.command.max_effort = GRIPPER_MAX_EFFORT
 
         future = self._gripper_client.send_goal_async(goal)
         future.add_done_callback(self._on_goal_accepted)
@@ -421,7 +410,7 @@ class JoyTeleop(Node):
         self.get_logger().info(
             f"Gripper done — reached_goal: {result.reached_goal}, "
             f"stalled: {result.stalled}, "
-            f"position: {list(result.state.position)}"
+            f"position: {result.position}"
         )
         self.gripper_busy = False
 
